@@ -88,8 +88,8 @@ class DCGAN(object):
 
     self.grayscale = (self.c_dim == 1)
 
-    if len(self.data) < self.batch_size:
-      raise Exception("[!] Entire dataset size is less than the configured batch_size")
+    #if len(self.data) < self.batch_size:
+    #  raise Exception("[!] Entire dataset size is less than the configured batch_size")
 
     self.build_model()
 
@@ -117,7 +117,7 @@ class DCGAN(object):
     self.D, self.D_logits   = self.discriminator(inputs, self.y, reuse=False)
     self.sampler            = self.sampler(self.z, self.y)
     self.D_, self.D_logits_ = self.discriminator(self.G, self.y, reuse=True)
-    
+
     self.d_sum = histogram_summary("d", self.D)
     self.d__sum = histogram_summary("d_", self.D_)
     self.G_sum = image_summary("G", self.G)
@@ -137,7 +137,7 @@ class DCGAN(object):
 
     self.d_loss_real_sum = scalar_summary("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = scalar_summary("d_loss_fake", self.d_loss_fake)
-                          
+
     self.d_loss = self.d_loss_real + self.d_loss_fake
 
     self.g_loss_sum = scalar_summary("g_loss", self.g_loss)
@@ -167,7 +167,7 @@ class DCGAN(object):
     self.writer = SummaryWriter("./logs", self.sess.graph)
 
     sample_z = np.random.uniform(-1, 1, size=(self.sample_num , self.z_dim))
-    
+
     if config.dataset == 'mnist':
       sample_inputs = self.data_X[0:self.sample_num]
       sample_labels = self.data_y[0:self.sample_num]
@@ -185,7 +185,7 @@ class DCGAN(object):
         sample_inputs = np.array(sample).astype(np.float32)[:, :, :, None]
       else:
         sample_inputs = np.array(sample).astype(np.float32)
-  
+
     counter = 1
     start_time = time.time()
     could_load, checkpoint_counter = self.load(self.checkpoint_dir)
@@ -198,7 +198,7 @@ class DCGAN(object):
     for epoch in xrange(config.epoch):
       if config.dataset == 'mnist':
         batch_idxs = min(len(self.data_X), config.train_size) // config.batch_size
-      else:      
+      else:
         self.data = glob(os.path.join(
           config.data_dir, config.dataset, self.input_fname_pattern))
         np.random.shuffle(self.data)
@@ -229,7 +229,7 @@ class DCGAN(object):
         if config.dataset == 'mnist':
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
-            feed_dict={ 
+            feed_dict={
               self.inputs: batch_images,
               self.z: batch_z,
               self.y:batch_labels,
@@ -239,7 +239,7 @@ class DCGAN(object):
           # Update G network
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={
-              self.z: batch_z, 
+              self.z: batch_z,
               self.y:batch_labels,
             })
           self.writer.add_summary(summary_str, counter)
@@ -248,9 +248,9 @@ class DCGAN(object):
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z, self.y:batch_labels })
           self.writer.add_summary(summary_str, counter)
-          
+
           errD_fake = self.d_loss_fake.eval({
-              self.z: batch_z, 
+              self.z: batch_z,
               self.y:batch_labels
           })
           errD_real = self.d_loss_real.eval({
@@ -276,7 +276,7 @@ class DCGAN(object):
           _, summary_str = self.sess.run([g_optim, self.g_sum],
             feed_dict={ self.z: batch_z })
           self.writer.add_summary(summary_str, counter)
-          
+
           errD_fake = self.d_loss_fake.eval({ self.z: batch_z })
           errD_real = self.d_loss_real.eval({ self.inputs: batch_images })
           errG = self.g_loss.eval({self.z: batch_z})
@@ -298,7 +298,7 @@ class DCGAN(object):
             )
             save_images(samples, image_manifold_size(samples.shape[0]),
                   './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
-            print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
+            print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
           else:
             try:
               samples, d_loss, g_loss = self.sess.run(
@@ -310,7 +310,7 @@ class DCGAN(object):
               )
               save_images(samples, image_manifold_size(samples.shape[0]),
                     './{}/train_{:02d}_{:04d}.png'.format(config.sample_dir, epoch, idx))
-              print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss)) 
+              print("[Sample] d_loss: %.8f, g_loss: %.8f" % (d_loss, g_loss))
             except:
               print("one pic error!...")
 
@@ -331,21 +331,31 @@ class DCGAN(object):
 
         return tf.nn.sigmoid(h4), h4
       else:
-        yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
-        x = conv_cond_concat(image, yb)
+        if 'no_cond' in os.environ:
+            x = image
+            y_dim = 0
+        else:
+            y_dim = self.y_dim
+            yb = tf.reshape(y, [self.batch_size, 1, 1, y_dim])
+            x = conv_cond_concat(image, yb)
 
-        h0 = lrelu(conv2d(x, self.c_dim + self.y_dim, name='d_h0_conv'))
-        h0 = conv_cond_concat(h0, yb)
+        h0 = lrelu(conv2d(x, self.c_dim + y_dim, name='d_h0_conv'))
+        if 'no_cond' not in os.environ:
+            h0 = conv_cond_concat(h0, yb)
 
-        h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim + self.y_dim, name='d_h1_conv')))
-        h1 = tf.reshape(h1, [self.batch_size, -1])      
-        h1 = concat([h1, y], 1)
-        
+        h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim + y_dim, name='d_h1_conv')))
+        h1 = tf.reshape(h1, [self.batch_size, -1])
+
+        if 'no_cond' not in os.environ:
+            h1 = concat([h1, y], 1)
+
         h2 = lrelu(self.d_bn2(linear(h1, self.dfc_dim, 'd_h2_lin')))
-        h2 = concat([h2, y], 1)
+
+        if 'no_cond' not in os.environ:
+            h2 = concat([h2, y], 1)
 
         h3 = linear(h2, 1, 'd_h3_lin')
-        
+
         return tf.nn.sigmoid(h3), h3
 
   def generator(self, z, y=None):
@@ -388,21 +398,28 @@ class DCGAN(object):
 
         # yb = tf.expand_dims(tf.expand_dims(y, 1),2)
         yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
-        z = concat([z, y], 1)
+
+        if 'no_cond' not in os.environ:
+            z = concat([z, y], 1)
 
         h0 = tf.nn.relu(
             self.g_bn0(linear(z, self.gfc_dim, 'g_h0_lin')))
-        h0 = concat([h0, y], 1)
+
+        if 'no_cond' not in os.environ:
+            h0 = concat([h0, y], 1)
 
         h1 = tf.nn.relu(self.g_bn1(
             linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin')))
         h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
 
-        h1 = conv_cond_concat(h1, yb)
+        if 'no_cond' not in os.environ:
+            h1 = conv_cond_concat(h1, yb)
 
         h2 = tf.nn.relu(self.g_bn2(deconv2d(h1,
             [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2')))
-        h2 = conv_cond_concat(h2, yb)
+
+        if 'no_cond' not in os.environ:
+            h2 = conv_cond_concat(h2, yb)
 
         return tf.nn.sigmoid(
             deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
@@ -442,26 +459,30 @@ class DCGAN(object):
         s_w2, s_w4 = int(s_w/2), int(s_w/4)
 
         # yb = tf.reshape(y, [-1, 1, 1, self.y_dim])
-        yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
-        z = concat([z, y], 1)
+        if 'no_cond' not in os.environ:
+            z = concat([z, y], 1)
+            yb = tf.reshape(y, [self.batch_size, 1, 1, self.y_dim])
 
         h0 = tf.nn.relu(self.g_bn0(linear(z, self.gfc_dim, 'g_h0_lin'), train=False))
-        h0 = concat([h0, y], 1)
+        if 'no_cond' not in os.environ:
+            h0 = concat([h0, y], 1)
 
         h1 = tf.nn.relu(self.g_bn1(
             linear(h0, self.gf_dim*2*s_h4*s_w4, 'g_h1_lin'), train=False))
         h1 = tf.reshape(h1, [self.batch_size, s_h4, s_w4, self.gf_dim * 2])
-        h1 = conv_cond_concat(h1, yb)
+        if 'no_cond' not in os.environ:
+            h1 = conv_cond_concat(h1, yb)
 
         h2 = tf.nn.relu(self.g_bn2(
             deconv2d(h1, [self.batch_size, s_h2, s_w2, self.gf_dim * 2], name='g_h2'), train=False))
-        h2 = conv_cond_concat(h2, yb)
+        if 'no_cond' not in os.environ:
+            h2 = conv_cond_concat(h2, yb)
 
         return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
 
   def load_mnist(self):
     data_dir = os.path.join(self.data_dir, self.dataset_name)
-    
+
     fd = open(os.path.join(data_dir,'train-images-idx3-ubyte'))
     loaded = np.fromfile(file=fd,dtype=np.uint8)
     trX = loaded[16:].reshape((60000,28,28,1)).astype(np.float)
@@ -480,20 +501,20 @@ class DCGAN(object):
 
     trY = np.asarray(trY)
     teY = np.asarray(teY)
-    
+
     X = np.concatenate((trX, teX), axis=0)
     y = np.concatenate((trY, teY), axis=0).astype(np.int)
-    
+
     seed = 547
     np.random.seed(seed)
     np.random.shuffle(X)
     np.random.seed(seed)
     np.random.shuffle(y)
-    
+
     y_vec = np.zeros((len(y), self.y_dim), dtype=np.float)
     for i, label in enumerate(y):
       y_vec[i,y[i]] = 1.0
-    
+
     return X/255.,y_vec
 
   @property
@@ -501,7 +522,7 @@ class DCGAN(object):
     return "{}_{}_{}_{}".format(
         self.dataset_name, self.batch_size,
         self.output_height, self.output_width)
-      
+
   def save(self, checkpoint_dir, step):
     model_name = "DCGAN.model"
     checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
